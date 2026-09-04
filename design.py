@@ -19,7 +19,7 @@ with col2:
     **[탱크 조종 & 포격]** (엔진 ON 상태)
     * **W**: 전진 | **S**: 후진
     * **A**: 좌회전 | **D**: 우회전
-    * **F**: 포탄 발사 🔥
+    * **F**: 포탄 발사 🔥 *(쿨타임: 6초)*
     """)
 
 # 3D 캔버스 및 Three.js 게임 로직 HTML/JS
@@ -35,19 +35,27 @@ html_code = """
             top: 20px;
             left: 20px;
             color: #00ff00;
-            font-size: 20px;
+            font-size: 18px;
             font-weight: bold;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.75);
+            padding: 12px 20px;
             border-radius: 8px;
             border: 1px solid #00ff00;
+            line-height: 1.5;
+        }
+        #reload-status {
+            font-size: 16px;
+            margin-top: 5px;
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
     <div id="canvas-container">
-        <div id="hud">엔진 상태: OFF (J를 눌러 시작)</div>
+        <div id="hud">
+            <div id="engine-status">엔진 상태: OFF (J를 눌러 시작)</div>
+            <div id="reload-status" style="color: #00ffff;">포탄 준비 완료 [F]</div>
+        </div>
     </div>
 
     <script>
@@ -125,24 +133,32 @@ html_code = """
         const turnSpeed = 0.03;
         const bulletSpeed = 1.2;
 
-        // HUD 업데이트
-        const hud = document.getElementById('hud');
+        // 쿨타임 관련 변수
+        const COOLDOWN_TIME = 6.0; // 6초
+        let lastFiredTime = -COOLDOWN_TIME; // 시작하자마자는 바로 발사 가능하도록 초기화
 
-        function updateHUD() {
+        // HUD 엘리먼트
+        const engineStatusEl = document.getElementById('engine-status');
+        const reloadStatusEl = document.getElementById('reload-status');
+
+        function updateEngineHUD() {
             if (isEngineOn) {
-                hud.innerText = "엔진 상태: ON (WASD 조종 / F 발사)";
-                hud.style.color = "#00ff00";
-                hud.style.borderColor = "#00ff00";
+                engineStatusEl.innerText = "엔진 상태: ON (WASD 조종)";
+                engineStatusEl.style.color = "#00ff00";
             } else {
-                hud.innerText = "엔진 상태: OFF (J를 눌러 시작)";
-                hud.style.color = "#ff3333";
-                hud.style.borderColor = "#ff3333";
+                engineStatusEl.innerText = "엔진 상태: OFF (J를 눌러 시작)";
+                engineStatusEl.style.color = "#ff3333";
             }
         }
 
         // 포탄 발사 함수
-        function fireBullet() {
+        function fireBullet(now) {
             if (!isEngineOn) return;
+
+            // 쿨타임 검사 (현재시간 - 마지막발사시간 < 6초 인 경우 발사 불가)
+            if (now - lastFiredTime < COOLDOWN_TIME) return;
+
+            lastFiredTime = now;
 
             const bullet = new THREE.Mesh(bulletGeo, bulletMat);
             
@@ -158,7 +174,7 @@ html_code = """
             bullets.push({
                 mesh: bullet,
                 direction: direction,
-                life: 120 // 프레임 기준 생명주기 (약 2초)
+                life: 120 // 프레임 기준 생명주기
             });
 
             scene.add(bullet);
@@ -172,12 +188,13 @@ html_code = """
             // 엔진 시작/정지
             if (key === 'j') {
                 isEngineOn = true;
-                updateHUD();
+                updateEngineHUD();
             } else if (key === 'h') {
                 isEngineOn = false;
-                updateHUD();
+                updateEngineHUD();
             } else if (key === 'f') {
-                fireBullet();
+                const now = performance.now() / 1000; // 초 단위 현재 시간
+                fireBullet(now);
             }
         });
 
@@ -188,6 +205,19 @@ html_code = """
         // 애니메이션 루프
         function animate() {
             requestAnimationFrame(animate);
+
+            const now = performance.now() / 1000;
+            const timeElapsed = now - lastFiredTime;
+
+            // 쿨타임 HUD 실시간 업데이트
+            if (timeElapsed < COOLDOWN_TIME) {
+                const remaining = (COOLDOWN_TIME - timeElapsed).toFixed(1);
+                reloadStatusEl.innerText = `⏳ 재장전 중... (${remaining}초)`;
+                reloadStatusEl.style.color = "#ffaa00";
+            } else {
+                reloadStatusEl.innerText = "🚀 포탄 준비 완료 [F]";
+                reloadStatusEl.style.color = "#00ffff";
+            }
 
             if (isEngineOn) {
                 // W: 전진
@@ -214,7 +244,6 @@ html_code = """
                 b.mesh.position.addScaledVector(b.direction, bulletSpeed);
                 b.life -= 1;
 
-                // 수명이 다했거나 바닥 아래로 내려가면 제거
                 if (b.life <= 0) {
                     scene.remove(b.mesh);
                     b.mesh.geometry.dispose();
@@ -222,7 +251,7 @@ html_code = """
                 }
             }
 
-            // 카메라는 항상 탱크 뒤쪽 위에서 추적
+            // 카메라 추적
             const relativeCameraOffset = new THREE.Vector3(0, 6, -12);
             const cameraOffset = relativeCameraOffset.applyMatrix4(tank.matrixWorld);
             camera.position.x = cameraOffset.x;
