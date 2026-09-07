@@ -3,8 +3,8 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Streamlit High-Detail 3D 탱크 시뮬레이션", layout="wide")
 
-st.title("🚜 고디테일 3D 탱크 대전 시뮬레이터")
-st.caption("디테일한 궤도 및 세부 장비, 포구 화염 효과와 입자 연출이 포함된 개선 버전입니다.")
+st.title("🚜 3D 탱크 대전 시뮬레이터 (포구 상하 조준 기능 추가)")
+st.caption("마우스 커서 위치에 따라 포탑 좌우 회전뿐만 아니라 주포(포구)가 위/아래로 정밀하게 조준됩니다.")
 
 # 조작 키 안내
 col1, col2 = st.columns(2)
@@ -13,19 +13,18 @@ with col1:
     **[엔진 조작]**
     * **J**: 엔진 시작
     * **H**: 엔진 정지
-    * **1 / 2 / 3**: 탱크 변경 (경탱크/중형/중전차)
+    * **1 / 2 / 3**: 탱크 변경 (경전차/중형/중전차)
     """)
 with col2:
     st.markdown("""
     **[탱크 조종]** (엔진 ON 상태)
     * **W**: 전진 | **S**: 후진
     * **A / D**: 차체 좌/우 회전
-    * **마우스**: 포탑 정밀 조준 🎯
-    * **F** 또는 **마우스 좌클릭**: 포탄 발사 🔥 (포구 화염 연출)
+    * **마우스**: 포탑 좌우 회전 및 **포구 위/아래(상하) 조준** 🎯
+    * **F** 또는 **마우스 좌클릭**: 포탄 발사 🔥
     * **R**: 1인칭 / 3인칭 시점 전환
     """)
 
-# 3D 캔버스 및 디테일 강화 HTML/JS
 html_code = """
 <!DOCTYPE html>
 <html>
@@ -137,6 +136,7 @@ html_code = """
             </div>
             <div style="margin-top: 8px;">동력계: <span id="engine-status" style="color: #ff3333;">정지 [J: 시동]</span></div>
             <div>주포 상태: <span id="cooldown-status" class="ready">발사 준비 완료</span></div>
+            <div>포구 각도: <span id="elevation-angle" style="color: #00ffff;">0.0°</span></div>
             <div>시점: <span id="camera-status" style="color: #00ffff;">3인칭 [R]</span></div>
             <div>격파 수: <span id="score-status" style="color: #ffff00;">0</span></div>
         </div>
@@ -199,7 +199,7 @@ html_code = """
         let playerHp = currentType.maxHp;
         let isGameOver = false;
 
-        // --- 상세 탱크 메시 생성 함수 ---
+        // --- 포구 상하 조절 기능이 포함된 상세 탱크 구조 생성 ---
         function createDetailedTankMesh(mainColorHex, isAI = false) {
             const group = new THREE.Group();
 
@@ -215,7 +215,7 @@ html_code = """
             body.castShadow = true;
             group.add(body);
 
-            // 궤도 (Tracks)
+            // 궤도 및 바퀴
             [-1.6, 1.6].forEach(x => {
                 const trackGeo = new THREE.BoxGeometry(0.6, 0.9, 4.6);
                 const track = new THREE.Mesh(trackGeo, darkMat);
@@ -223,7 +223,6 @@ html_code = """
                 track.castShadow = true;
                 group.add(track);
 
-                // 바퀴 디테일
                 for (let z = -1.8; z <= 1.8; z += 0.9) {
                     const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.65, 12);
                     const wheel = new THREE.Mesh(wheelGeo, detailMat);
@@ -233,7 +232,7 @@ html_code = """
                 }
             });
 
-            // 포탑 그룹
+            // 포탑 피벗 그룹 (좌우 회전)
             const turretGroup = new THREE.Group();
             turretGroup.position.set(0, 1.65, 0.1);
 
@@ -249,20 +248,27 @@ html_code = """
             hatch.position.set(0.5, 0.45, -0.2);
             turretGroup.add(hatch);
 
-            // 주포 & 포구 제퇴기 (Muzzle Brake)
+            // **주포 Pitch 그룹 (상하 피벗 피치 회전)**
+            const cannonPitchGroup = new THREE.Group();
+            cannonPitchGroup.position.set(0, 0, 0.8); // 주포 연결 위치
+
+            // 주포 바렐 (Gun Barrel)
             const cannonGeo = new THREE.CylinderGeometry(0.14, 0.16, 2.8, 16);
             const cannon = new THREE.Mesh(cannonGeo, detailMat);
             cannon.rotation.x = Math.PI / 2;
-            cannon.position.set(0, 0, 1.5);
+            cannon.position.set(0, 0, 1.2);
             cannon.castShadow = true;
-            turretGroup.add(cannon);
+            cannonPitchGroup.add(cannon);
 
+            // 포구 제퇴기 (Muzzle Brake)
             const muzzleGeo = new THREE.BoxGeometry(0.38, 0.38, 0.4);
             const muzzle = new THREE.Mesh(muzzleGeo, detailMat);
-            muzzle.position.set(0, 0, 2.9);
-            turretGroup.add(muzzle);
+            muzzle.position.set(0, 0, 2.6);
+            cannonPitchGroup.add(muzzle);
 
-            // 조향 헤드라이트
+            turretGroup.add(cannonPitchGroup);
+
+            // 헤드라이트
             [-0.9, 0.9].forEach(x => {
                 const headLight = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.1), lightMat);
                 headLight.position.set(x, 1.0, 2.15);
@@ -271,13 +277,18 @@ html_code = """
 
             group.add(turretGroup);
 
-            return { mesh: group, turretGroup: turretGroup, muzzleMesh: muzzle };
+            return { 
+                mesh: group, 
+                turretGroup: turretGroup, 
+                cannonPitchGroup: cannonPitchGroup 
+            };
         }
 
-        // 플레이어 탱크 조립
+        // 플레이어 탱크 생성
         const playerTankData = createDetailedTankMesh(currentType.color, false);
         const playerTank = playerTankData.mesh;
         const turretGroup = playerTankData.turretGroup;
+        const cannonPitchGroup = playerTankData.cannonPitchGroup;
         scene.add(playerTank);
 
         function applyTankStats() {
@@ -298,7 +309,7 @@ html_code = """
             playerHp = Math.min(playerHp, currentType.maxHp);
         };
 
-        // --- 적(AI) 탱크 생성 ---
+        // 적 탱크
         const aiTanks = [];
         function createAITank() {
             const aiData = createDetailedTankMesh(0x8b2222, true);
@@ -317,6 +328,7 @@ html_code = """
             return {
                 mesh: aiMesh,
                 turretGroup: aiData.turretGroup,
+                cannonPitchGroup: aiData.cannonPitchGroup,
                 hp: 60,
                 maxHp: 60,
                 lastShootTime: 0,
@@ -326,22 +338,17 @@ html_code = """
 
         for (let i = 0; i < 2; i++) aiTanks.push(createAITank());
 
-        // --- 디테일 3D 수리 키트 ---
+        // 수리 키트
         const healthPacks = [];
         function createHealthPack() {
             const packGroup = new THREE.Group();
             
             const packMat = new THREE.MeshStandardMaterial({ color: 0x00ff66, emissive: 0x00bb44 });
-            const packBaseGeo = new THREE.BoxGeometry(0.5, 1.6, 0.5);
-            const packCrossGeo = new THREE.BoxGeometry(1.6, 0.5, 0.5);
-
-            const vMesh = new THREE.Mesh(packBaseGeo, packMat);
-            const hMesh = new THREE.Mesh(packCrossGeo, packMat);
+            const vMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), packMat);
+            const hMesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 0.5), packMat);
             packGroup.add(vMesh, hMesh);
 
-            // 오라 라이트
             const pLight = new THREE.PointLight(0x00ff66, 1.5, 6);
-            pLight.position.set(0, 0, 0);
             packGroup.add(pLight);
 
             const angle = Math.random() * Math.PI * 2;
@@ -358,7 +365,6 @@ html_code = """
 
         for (let i = 0; i < 2; i++) healthPacks.push(createHealthPack());
 
-        // --- 이펙트 및 포탄 ---
         const bullets = [];
         const effects = [];
         const bulletGeo = new THREE.SphereGeometry(0.22, 8, 8);
@@ -379,6 +385,7 @@ html_code = """
 
         const engineStatusEl = document.getElementById('engine-status');
         const cooldownStatusEl = document.getElementById('cooldown-status');
+        const elevationAngleEl = document.getElementById('elevation-angle');
         const cameraStatusEl = document.getElementById('camera-status');
         const scoreStatusEl = document.getElementById('score-status');
         const hpTextEl = document.getElementById('hp-text');
@@ -412,6 +419,10 @@ html_code = """
                 cooldownStatusEl.className = "cooldown";
             }
 
+            // 상하 각도 표시
+            const deg = (-cannonPitchGroup.rotation.x * (180 / Math.PI)).toFixed(1);
+            elevationAngleEl.innerText = `${deg > 0 ? '+' : ''}${deg}°`;
+
             cameraStatusEl.innerText = isFirstPerson ? "1인칭 (조종석)" : "3인칭 (전체)";
             scoreStatusEl.innerText = killCount;
         }
@@ -423,6 +434,7 @@ html_code = """
             playerTank.position.set(0, 0, 0);
             playerTank.rotation.set(0, 0, 0);
             turretGroup.rotation.set(0, 0, 0);
+            cannonPitchGroup.rotation.set(0, 0, 0);
             gameOverEl.style.display = "none";
             
             aiTanks.forEach(ai => scene.remove(ai.mesh));
@@ -435,21 +447,23 @@ html_code = """
             const now = performance.now() / 1000;
             if (now - lastShootTime >= currentType.cooldown) {
                 lastShootTime = now;
-                fireBullet(turretGroup, true, currentType.damage);
+                fireBullet(cannonPitchGroup, true, currentType.damage);
             }
         }
 
-        function fireBullet(turretRef, isPlayer, damage) {
+        function fireBullet(pitchGroupRef, isPlayer, damage) {
             const bullet = new THREE.Mesh(bulletGeo, isPlayer ? playerBulletMat : aiBulletMat);
             
-            const muzzleOffset = new THREE.Vector3(0, 0, 3.1 * (isPlayer ? currentType.scale : 1.0));
-            muzzleOffset.applyMatrix4(turretRef.matrixWorld);
+            // 포구 위치 추출 (상하 각도 포함)
+            const muzzleOffset = new THREE.Vector3(0, 0, 2.8 * (isPlayer ? currentType.scale : 1.0));
+            muzzleOffset.applyMatrix4(pitchGroupRef.matrixWorld);
             bullet.position.copy(muzzleOffset);
 
             createMuzzleFlash(muzzleOffset);
 
+            // 포구가 바라보는 3D 가리킴 방향 벡터 계산
             const direction = new THREE.Vector3(0, 0, 1);
-            direction.applyQuaternion(turretRef.getWorldQuaternion(new THREE.Quaternion())).normalize();
+            direction.applyQuaternion(pitchGroupRef.getWorldQuaternion(new THREE.Quaternion())).normalize();
 
             bullets.push({ mesh: bullet, direction: direction, isPlayer: isPlayer, damage: damage, life: 250 });
             scene.add(bullet);
@@ -484,6 +498,7 @@ html_code = """
             const now = performance.now() / 1000;
             updateHUD(now);
 
+            // 마우스 광선 투사
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObject(plane);
             if (intersects.length > 0) targetWorldPoint.copy(intersects[0].point);
@@ -497,12 +512,24 @@ html_code = """
                     if (keys['d']) playerTank.rotation.y -= currentType.turnSpeed;
                 }
 
-                // 포탑 정밀 조준
+                // --- 포탑 좌우 & 주포 상하 정밀 조준 계산 ---
                 const localTarget = targetWorldPoint.clone();
                 playerTank.worldToLocal(localTarget);
+
+                // 1) 포탑 Yaw (좌우 회전)
                 turretGroup.rotation.y = Math.atan2(localTarget.x, localTarget.z);
 
-                // 수리키트 회전 & 회복
+                // 2) 주포 Pitch (상하 회전)
+                const distanceHorizontal = Math.sqrt(localTarget.x * localTarget.x + localTarget.z * localTarget.z);
+                const deltaY = localTarget.y - turretGroup.position.y;
+                let targetPitch = -Math.atan2(deltaY, distanceHorizontal);
+
+                // 상하 각도 제한 ( -15도 ~ +20도 제한 )
+                const minPitch = -20 * (Math.PI / 180); // 위로 올려다보기 Max
+                const maxPitch = 15 * (Math.PI / 180);  // 아래로 내려다보기 Min
+                cannonPitchGroup.rotation.x = Math.max(minPitch, Math.min(maxPitch, targetPitch));
+
+                // 수리키트 습득
                 for (let i = healthPacks.length - 1; i >= 0; i--) {
                     const pack = healthPacks[i];
                     pack.rotation.y += 0.03;
@@ -524,7 +551,7 @@ html_code = """
                     healthPacks.push(createHealthPack());
                 }
 
-                // 적 AI 조작
+                // AI 조작
                 aiTanks.forEach(ai => {
                     const targetPos = new THREE.Vector3(playerTank.position.x, ai.mesh.position.y, playerTank.position.z);
                     ai.mesh.lookAt(targetPos);
@@ -535,12 +562,12 @@ html_code = """
 
                     if (now - ai.lastShootTime >= ai.shootCooldown) {
                         ai.lastShootTime = now;
-                        fireBullet(ai.turretGroup, false, 18);
+                        fireBullet(ai.cannonPitchGroup, false, 18);
                     }
                 });
             }
 
-            // 이펙트 수명 조절
+            // 이펙트 정리
             for (let i = effects.length - 1; i >= 0; i--) {
                 effects[i].life -= 1;
                 if (effects[i].life <= 0) {
@@ -549,7 +576,7 @@ html_code = """
                 }
             }
 
-            // 포탄 이동 및 적중 판정
+            // 포탄 이동
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 b.mesh.position.addScaledVector(b.direction, 0.7);
@@ -599,14 +626,14 @@ html_code = """
                 }
             }
 
-            // 카메라 설정
+            // 카메라 연동
             if (isFirstPerson) {
-                const fpOffset = new THREE.Vector3(0, 2.1 * currentType.scale, 0.4 * currentType.scale);
-                fpOffset.applyMatrix4(turretGroup.matrixWorld);
+                const fpOffset = new THREE.Vector3(0, 0.4 * currentType.scale, 0.4 * currentType.scale);
+                fpOffset.applyMatrix4(cannonPitchGroup.matrixWorld);
                 camera.position.copy(fpOffset);
 
-                const lookAtOffset = new THREE.Vector3(0, 2.1 * currentType.scale, 20);
-                lookAtOffset.applyMatrix4(turretGroup.matrixWorld);
+                const lookAtOffset = new THREE.Vector3(0, 0.4 * currentType.scale, 20);
+                lookAtOffset.applyMatrix4(cannonPitchGroup.matrixWorld);
                 camera.lookAt(lookAtOffset);
             } else {
                 const tpOffset = new THREE.Vector3(0, 6.5 * currentType.scale, -13 * currentType.scale);
