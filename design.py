@@ -3,8 +3,8 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Streamlit 3D 탱크 시뮬레이션", layout="wide")
 
-st.title("🚜 3D 탱크 시뮬레이터 (체력 회복 아이템 추가)")
-st.caption("Streamlit + Three.js를 활용한 대전 시뮬레이션 - 필드의 초록색 십자가 키트를 먹고 체력을 회복하세요!")
+st.title("🚜 3D 탱크 시뮬레이터 (탱크 종류 선택 가능)")
+st.caption("Streamlit + Three.js를 활용한 대전 시뮬레이션 - 탱크 종류를 직접 골라 전투에 참여하세요!")
 
 # 조작 키 안내
 col1, col2 = st.columns(2)
@@ -13,6 +13,7 @@ with col1:
     **[엔진 조작]**
     * **J**: 엔진 시작
     * **H**: 엔진 정지
+    * **1 / 2 / 3**: 게임 중 탱크 변경 (경탱크/중형탱크/중전차)
     """)
 with col2:
     st.markdown("""
@@ -20,7 +21,7 @@ with col2:
     * **W**: 전진 | **S**: 후진
     * **A**: 차체 좌회전 | **D**: 차체 우회전
     * **마우스 이동**: 포탑/포신 조준 🎯
-    * **F** 또는 **마우스 왼쪽 클릭**: 포탄 발사 🔥 (쿨타임 6초)
+    * **F** 또는 **마우스 왼쪽 클릭**: 포탄 발사 🔥
     * **R**: 시점 전환 🎥 (1인칭 ↔ 3인칭)
     * **🟩 초록 십자가**: 체력 키트 (획득 시 **HP +30** 회복)
     """)
@@ -38,14 +39,14 @@ html_code = """
             top: 20px;
             left: 20px;
             color: #00ff00;
-            font-size: 18px;
+            font-size: 16px;
             font-weight: bold;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.85);
             padding: 15px 20px;
             border-radius: 8px;
             border: 1px solid #00ff00;
             line-height: 1.6;
-            min-width: 220px;
+            min-width: 240px;
             pointer-events: none;
             user-select: none;
         }
@@ -67,10 +68,9 @@ html_code = """
         #heal-msg {
             display: none;
             color: #00ff88;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: bold;
             margin-top: 5px;
-            animation: fade 1.5s forwards;
         }
         #game-over {
             display: none;
@@ -91,12 +91,44 @@ html_code = """
         }
         .ready { color: #00ff00; }
         .cooldown { color: #ff9900; }
+
+        #tank-selector {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 12px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px 15px;
+            border-radius: 10px;
+            border: 1px solid #00ff00;
+        }
+        .tank-btn {
+            background: #222;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+        .tank-btn:hover {
+            background: #444;
+        }
+        .tank-btn.active {
+            background: #00aa44;
+            border-color: #00ff66;
+            color: #fff;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
     <div id="canvas-container">
         <div id="hud">
+            <div>선택된 탱크: <span id="tank-type-name" style="color: #ffff00;">중형탱크</span></div>
             <div>플레이어 HP: <span id="hp-text">100 / 100</span>
                 <div class="hp-bar-container">
                     <div id="hp-bar" class="hp-bar-fill"></div>
@@ -108,6 +140,13 @@ html_code = """
             <div>시점 모드: <span id="camera-status" style="color: #00ffff;">3인칭 [R로 변경]</span></div>
             <div>처치한 적 수: <span id="score-status" style="color: #ffff00;">0</span></div>
         </div>
+
+        <div id="tank-selector">
+            <button class="tank-btn" onclick="selectTankType('LIGHT')">[1] ⚡ 경탱크 (기동성)</button>
+            <button class="tank-btn active" onclick="selectTankType('MEDIUM')">[2] 🛡️ 중형탱크 (밸런스)</button>
+            <button class="tank-btn" onclick="selectTankType('HEAVY')">[3] 🐘 중전차 (고체력/고화력)</button>
+        </div>
+
         <div id="game-over">
             GAME OVER<br>
             <span style="font-size: 20px; color: #fff;">[R]키를 눌러 다시 시작하세요</span>
@@ -115,6 +154,42 @@ html_code = """
     </div>
 
     <script>
+        const TANK_TYPES = {
+            LIGHT: {
+                name: "경탱크",
+                maxHp: 70,
+                speed: 0.45,
+                turnSpeed: 0.07,
+                damage: 20,
+                cooldown: 4.0,
+                color: 0x4a7c59,
+                scale: 0.8
+            },
+            MEDIUM: {
+                name: "중형탱크",
+                maxHp: 100,
+                speed: 0.30,
+                turnSpeed: 0.05,
+                damage: 25,
+                cooldown: 6.0,
+                color: 0x2e5a27,
+                scale: 1.0
+            },
+            HEAVY: {
+                name: "중전차",
+                maxHp: 160,
+                speed: 0.18,
+                turnSpeed: 0.035,
+                damage: 40,
+                cooldown: 8.0,
+                color: 0x1c3b18,
+                scale: 1.25
+            }
+        };
+
+        let currentTypeKey = 'MEDIUM';
+        let currentType = TANK_TYPES[currentTypeKey];
+
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x1a1a1a);
@@ -144,16 +219,16 @@ html_code = """
         plane.receiveShadow = true;
         scene.add(plane);
 
-        const MAX_PLAYER_HP = 100;
-        let playerHp = MAX_PLAYER_HP;
+        let playerHp = currentType.maxHp;
         let isGameOver = false;
 
         // --- 플레이어 탱크 ---
         const playerTank = new THREE.Group();
+        const playerBodyMat = new THREE.MeshStandardMaterial({ color: currentType.color });
+        const playerTurretMat = new THREE.MeshStandardMaterial({ color: currentType.color });
 
         const bodyGeo = new THREE.BoxGeometry(3, 1.2, 4);
-        const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2e5a27 });
-        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        const body = new THREE.Mesh(bodyGeo, playerBodyMat);
         body.position.y = 0.8;
         body.castShadow = true;
         playerTank.add(body);
@@ -162,8 +237,7 @@ html_code = """
         turretGroup.position.set(0, 1.8, 0);
 
         const turretGeo = new THREE.BoxGeometry(2, 0.8, 2);
-        const turretMat = new THREE.MeshStandardMaterial({ color: 0x3d7534 });
-        const turret = new THREE.Mesh(turretGeo, turretMat);
+        const turret = new THREE.Mesh(turretGeo, playerTurretMat);
         turret.position.set(0, 0, -0.2);
         turret.castShadow = true;
         turretGroup.add(turret);
@@ -178,6 +252,27 @@ html_code = """
 
         playerTank.add(turretGroup);
         scene.add(playerTank);
+
+        function applyTankStats() {
+            currentType = TANK_TYPES[currentTypeKey];
+            playerTank.scale.set(currentType.scale, currentType.scale, currentType.scale);
+            playerBodyMat.color.setHex(currentType.color);
+            playerTurretMat.color.setHex(currentType.color);
+            document.getElementById('tank-type-name').innerText = currentType.name;
+
+            // 스위치 버튼 스타일 활성화
+            const buttons = document.querySelectorAll('.tank-btn');
+            buttons.forEach(btn => btn.classList.remove('active'));
+            if (currentTypeKey === 'LIGHT') buttons[0].classList.add('active');
+            if (currentTypeKey === 'MEDIUM') buttons[1].classList.add('active');
+            if (currentTypeKey === 'HEAVY') buttons[2].classList.add('active');
+        }
+
+        window.selectTankType = function(typeKey) {
+            currentTypeKey = typeKey;
+            applyTankStats();
+            playerHp = Math.min(playerHp, currentType.maxHp);
+        };
 
         // --- AI 탱크 ---
         const aiTanks = [];
@@ -224,7 +319,7 @@ html_code = """
                 hp: 50,
                 maxHp: 50,
                 lastShootTime: 0,
-                shootCooldown: 3.0 + Math.random() * 2
+                shootCooldown: 3.5 + Math.random() * 2
             };
         }
 
@@ -232,7 +327,7 @@ html_code = """
             aiTanks.push(createAITank());
         }
 
-        // --- 체력 회복 아이템 (Health Pack) ---
+        // --- 체력 아이템 ---
         const healthPacks = [];
         const packMat = new THREE.MeshStandardMaterial({ color: 0x00ff66, emissive: 0x00aa33 });
         const packBaseGeo = new THREE.BoxGeometry(0.5, 1.5, 0.5);
@@ -240,7 +335,6 @@ html_code = """
 
         function createHealthPack() {
             const packGroup = new THREE.Group();
-            
             const vMesh = new THREE.Mesh(packBaseGeo, packMat);
             const hMesh = new THREE.Mesh(packCrossGeo, packMat);
             packGroup.add(vMesh);
@@ -258,7 +352,6 @@ html_code = """
             return packGroup;
         }
 
-        // 초기 아이템 2개 생성
         for (let i = 0; i < 2; i++) {
             healthPacks.push(createHealthPack());
         }
@@ -273,13 +366,7 @@ html_code = """
         let killCount = 0;
         const keys = {};
 
-        // --- 속도 파라미터 ---
-        const speed = 0.30;       // 이동 속도
-        const turnSpeed = 0.05;   // 회전 속도
-        const bulletSpeed = 0.6;  // 포탄 비행 속도
-
-        const COOLDOWN_TIME = 6.0;
-        let lastShootTime = -COOLDOWN_TIME;
+        let lastShootTime = -10.0;
         let lastPackSpawnTime = 0;
 
         const raycaster = new THREE.Raycaster();
@@ -303,8 +390,8 @@ html_code = """
         }
 
         function updateHUD(currentTime) {
-            hpTextEl.innerText = `${playerHp} / ${MAX_PLAYER_HP}`;
-            const hpRatio = Math.max(0, playerHp / MAX_PLAYER_HP);
+            hpTextEl.innerText = `${playerHp} / ${currentType.maxHp}`;
+            const hpRatio = Math.max(0, playerHp / currentType.maxHp);
             hpBarEl.style.width = `${hpRatio * 100}%`;
             
             if (hpRatio > 0.5) {
@@ -324,7 +411,7 @@ html_code = """
             }
 
             const elapsedTime = currentTime - lastShootTime;
-            const remainingTime = COOLDOWN_TIME - elapsedTime;
+            const remainingTime = currentType.cooldown - elapsedTime;
 
             if (remainingTime <= 0) {
                 cooldownStatusEl.innerText = "발사 가능 [F / 클릭]";
@@ -346,7 +433,7 @@ html_code = """
         }
 
         function restartGame() {
-            playerHp = MAX_PLAYER_HP;
+            playerHp = currentType.maxHp;
             isGameOver = false;
             killCount = 0;
             playerTank.position.set(0, 0, 0);
@@ -370,16 +457,16 @@ html_code = """
         function triggerFire() {
             if (isGameOver || !isEngineOn) return;
             const now = performance.now() / 1000;
-            if (now - lastShootTime >= COOLDOWN_TIME) {
+            if (now - lastShootTime >= currentType.cooldown) {
                 lastShootTime = now;
-                fireBullet(turretGroup, true);
+                fireBullet(turretGroup, true, currentType.damage);
             }
         }
 
-        function fireBullet(turretRef, isPlayer) {
+        function fireBullet(turretRef, isPlayer, damage) {
             const bullet = new THREE.Mesh(bulletGeo, isPlayer ? playerBulletMat : aiBulletMat);
             
-            const muzzleOffset = new THREE.Vector3(0, 0, 2.8);
+            const muzzleOffset = new THREE.Vector3(0, 0, 2.8 * currentType.scale);
             muzzleOffset.applyMatrix4(turretRef.matrixWorld);
             bullet.position.copy(muzzleOffset);
 
@@ -390,6 +477,7 @@ html_code = """
                 mesh: bullet,
                 direction: direction,
                 isPlayer: isPlayer,
+                damage: damage,
                 life: 300
             });
 
@@ -416,15 +504,13 @@ html_code = """
                 return;
             }
 
-            if (key === 'j') {
-                isEngineOn = true;
-            } else if (key === 'h') {
-                isEngineOn = false;
-            } else if (key === 'f') {
-                triggerFire();
-            } else if (key === 'r') {
-                isFirstPerson = !isFirstPerson;
-            }
+            if (key === '1') selectTankType('LIGHT');
+            else if (key === '2') selectTankType('MEDIUM');
+            else if (key === '3') selectTankType('HEAVY');
+            else if (key === 'j') isEngineOn = true;
+            else if (key === 'h') isEngineOn = false;
+            else if (key === 'f') triggerFire();
+            else if (key === 'r') isFirstPerson = !isFirstPerson;
         });
 
         window.addEventListener('keyup', (e) => {
@@ -446,26 +532,26 @@ html_code = """
             if (!isGameOver) {
                 // 플레이어 탱크 이동
                 if (isEngineOn) {
-                    if (keys['w']) playerTank.translateZ(speed);
-                    if (keys['s']) playerTank.translateZ(-speed);
-                    if (keys['a']) playerTank.rotation.y += turnSpeed;
-                    if (keys['d']) playerTank.rotation.y -= turnSpeed;
+                    if (keys['w']) playerTank.translateZ(currentType.speed);
+                    if (keys['s']) playerTank.translateZ(-currentType.speed);
+                    if (keys['a']) playerTank.rotation.y += currentType.turnSpeed;
+                    if (keys['d']) playerTank.rotation.y -= currentType.turnSpeed;
                 }
 
-                // 포탑 마우스 회전
+                // 포탑 조준
                 const localTarget = targetWorldPoint.clone();
                 playerTank.worldToLocal(localTarget);
                 const targetAngle = Math.atan2(localTarget.x, localTarget.z);
                 turretGroup.rotation.y = targetAngle;
 
-                // 회전 아이템 애니메이션 및 획득 판정
+                // 아이템 획득
                 for (let i = healthPacks.length - 1; i >= 0; i--) {
                     const pack = healthPacks[i];
-                    pack.rotation.y += 0.03; // 천천히 회전 효과
+                    pack.rotation.y += 0.03;
 
                     if (playerTank.position.distanceTo(pack.position) < 3.0) {
-                        if (playerHp < MAX_PLAYER_HP) {
-                            playerHp = Math.min(MAX_PLAYER_HP, playerHp + 30);
+                        if (playerHp < currentType.maxHp) {
+                            playerHp = Math.min(currentType.maxHp, playerHp + 30);
                             showHealMessage();
 
                             scene.remove(pack);
@@ -474,7 +560,6 @@ html_code = """
                     }
                 }
 
-                // 일정 시간(10초)마다 아이템 리스폰 (최대 3개)
                 if (now - lastPackSpawnTime > 10.0 && healthPacks.length < 3) {
                     lastPackSpawnTime = now;
                     healthPacks.push(createHealthPack());
@@ -487,20 +572,20 @@ html_code = """
 
                     const dist = ai.mesh.position.distanceTo(playerTank.position);
                     if (dist > 15) {
-                        ai.mesh.translateZ(speed * 0.6);
+                        ai.mesh.translateZ(0.18);
                     }
 
                     if (now - ai.lastShootTime >= ai.shootCooldown) {
                         ai.lastShootTime = now;
-                        fireBullet(ai.turretGroup, false);
+                        fireBullet(ai.turretGroup, false, 20);
                     }
                 });
             }
 
-            // 포탄 이동 & 충돌
+            // 포탄 이동 및 충돌
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
-                b.mesh.position.addScaledVector(b.direction, bulletSpeed);
+                b.mesh.position.addScaledVector(b.direction, 0.6);
                 b.life -= 1;
 
                 if (!isGameOver) {
@@ -508,7 +593,7 @@ html_code = """
                         for (let j = aiTanks.length - 1; j >= 0; j--) {
                             const ai = aiTanks[j];
                             if (b.mesh.position.distanceTo(ai.mesh.position) < 2.5) {
-                                ai.hp -= 25;
+                                ai.hp -= b.damage;
 
                                 scene.remove(b.mesh);
                                 b.mesh.geometry.dispose();
@@ -527,8 +612,8 @@ html_code = """
                             }
                         }
                     } else {
-                        if (b.mesh.position.distanceTo(playerTank.position) < 2.5) {
-                            playerHp -= 25;
+                        if (b.mesh.position.distanceTo(playerTank.position) < 2.5 * currentType.scale) {
+                            playerHp -= b.damage;
 
                             scene.remove(b.mesh);
                             b.mesh.geometry.dispose();
@@ -551,17 +636,17 @@ html_code = """
                 }
             }
 
-            // 카메라 시점
+            // 카메라 위치 설정
             if (isFirstPerson) {
-                const fpOffset = new THREE.Vector3(0, 2.0, 0.5);
+                const fpOffset = new THREE.Vector3(0, 2.0 * currentType.scale, 0.5 * currentType.scale);
                 fpOffset.applyMatrix4(turretGroup.matrixWorld);
                 camera.position.copy(fpOffset);
 
-                const lookAtOffset = new THREE.Vector3(0, 2.0, 20);
+                const lookAtOffset = new THREE.Vector3(0, 2.0 * currentType.scale, 20);
                 lookAtOffset.applyMatrix4(turretGroup.matrixWorld);
                 camera.lookAt(lookAtOffset);
             } else {
-                const tpOffset = new THREE.Vector3(0, 6, -12);
+                const tpOffset = new THREE.Vector3(0, 6 * currentType.scale, -12 * currentType.scale);
                 const tpPosition = tpOffset.applyMatrix4(playerTank.matrixWorld);
                 camera.position.copy(tpPosition);
                 camera.lookAt(playerTank.position.x, playerTank.position.y + 1, playerTank.position.z);
@@ -576,10 +661,11 @@ html_code = """
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
+        applyTankStats();
         animate();
     </script>
 </body>
 </html>
 """
 
-components.html(html_code, height=650)
+components.html(html_code, height=680)
