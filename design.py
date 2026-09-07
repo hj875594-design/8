@@ -3,8 +3,8 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Streamlit 3D 탱크 시뮬레이션", layout="wide")
 
-st.title("🚜 3D 탱크 시뮬레이터 (VS AI)")
-st.caption("Streamlit + Three.js를 활용한 AI 탱크 대전 시뮬레이션")
+st.title("🚜 3D 탱크 시뮬레이터 (HP 시스템)")
+st.caption("Streamlit + Three.js를 활용한 체력 및 대전 시뮬레이션")
 
 # 조작 키 안내
 col1, col2 = st.columns(2)
@@ -38,11 +38,42 @@ html_code = """
             color: #00ff00;
             font-size: 18px;
             font-weight: bold;
-            background: rgba(0, 0, 0, 0.75);
-            padding: 12px 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 20px;
             border-radius: 8px;
             border: 1px solid #00ff00;
-            line-height: 1.5;
+            line-height: 1.6;
+            min-width: 220px;
+        }
+        .hp-bar-container {
+            width: 100%;
+            background-color: #444;
+            height: 16px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 4px;
+            border: 1px solid #fff;
+        }
+        .hp-bar-fill {
+            height: 100%;
+            background-color: #00ff00;
+            width: 100%;
+            transition: width 0.2s ease-in-out;
+        }
+        #game-over {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff0000;
+            font-size: 48px;
+            font-weight: bold;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px 50px;
+            border: 3px solid #ff0000;
+            border-radius: 12px;
+            text-align: center;
         }
         .ready { color: #00ff00; }
         .cooldown { color: #ff9900; }
@@ -52,10 +83,19 @@ html_code = """
 <body>
     <div id="canvas-container">
         <div id="hud">
-            <div>엔진 상태: <span id="engine-status" style="color: #ff3333;">OFF (J를 눌러 시작)</span></div>
+            <div>플레이어 HP: <span id="hp-text">100 / 100</span>
+                <div class="hp-bar-container">
+                    <div id="hp-bar" class="hp-bar-fill"></div>
+                </div>
+            </div>
+            <div style="margin-top: 8px;">엔진 상태: <span id="engine-status" style="color: #ff3333;">OFF (J를 눌러 시작)</span></div>
             <div>포탄 상태: <span id="cooldown-status" class="ready">발사 가능 [F]</span></div>
             <div>시점 모드: <span id="camera-status" style="color: #00ffff;">3인칭 [R로 변경]</span></div>
             <div>처치한 적 수: <span id="score-status" style="color: #ffff00;">0</span></div>
+        </div>
+        <div id="game-over">
+            GAME OVER<br>
+            <span style="font-size: 20px; color: #fff;">[R]키를 눌러 다시 시작하세요</span>
         </div>
     </div>
 
@@ -89,7 +129,11 @@ html_code = """
         plane.receiveShadow = true;
         scene.add(plane);
 
-        // 플레이어 탱크 생성
+        // 플레이어 탱크 및 상태 데이터
+        const MAX_PLAYER_HP = 100;
+        let playerHp = MAX_PLAYER_HP;
+        let isGameOver = false;
+
         const playerTank = new THREE.Group();
         const bodyGeo = new THREE.BoxGeometry(3, 1.2, 4);
         const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2e5a27 });
@@ -115,7 +159,7 @@ html_code = """
 
         scene.add(playerTank);
 
-        // AI 탱크 팩토리 함수
+        // AI 탱크 관리
         const aiTanks = [];
         const aiBodyMat = new THREE.MeshStandardMaterial({ color: 0x8b0000 });
         const aiTurretMat = new THREE.MeshStandardMaterial({ color: 0xb22222 });
@@ -139,7 +183,6 @@ html_code = """
             aiCannon.castShadow = true;
             aiTank.add(aiCannon);
 
-            // 랜덤 생성 위치 (플레이어와 거리를 둠)
             const angle = Math.random() * Math.PI * 2;
             const distance = 30 + Math.random() * 30;
             aiTank.position.set(
@@ -152,23 +195,23 @@ html_code = """
 
             return {
                 mesh: aiTank,
+                hp: 50,
+                maxHp: 50,
                 lastShootTime: 0,
-                shootCooldown: 4.0 + Math.random() * 2 // 4~6초마다 무작위 발사
+                shootCooldown: 4.0 + Math.random() * 2
             };
         }
 
-        // 초기 AI 탱크 2대 생성
         for (let i = 0; i < 2; i++) {
             aiTanks.push(createAITank());
         }
 
-        // 포탄 관리
+        // 포탄 설정
         const bullets = [];
         const bulletGeo = new THREE.SphereGeometry(0.25, 8, 8);
         const playerBulletMat = new THREE.MeshStandardMaterial({ color: 0xffa500, emissive: 0xff3300 });
         const aiBulletMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xaa0000 });
 
-        // 상태 및 제어 변수
         let isEngineOn = false;
         let isFirstPerson = false;
         let killCount = 0;
@@ -180,12 +223,28 @@ html_code = """
         const COOLDOWN_TIME = 6.0;
         let lastShootTime = -COOLDOWN_TIME;
 
+        // DOM 요소
         const engineStatusEl = document.getElementById('engine-status');
         const cooldownStatusEl = document.getElementById('cooldown-status');
         const cameraStatusEl = document.getElementById('camera-status');
         const scoreStatusEl = document.getElementById('score-status');
+        const hpTextEl = document.getElementById('hp-text');
+        const hpBarEl = document.getElementById('hp-bar');
+        const gameOverEl = document.getElementById('game-over');
 
         function updateHUD(currentTime) {
+            hpTextEl.innerText = `${playerHp} / ${MAX_PLAYER_HP}`;
+            const hpRatio = Math.max(0, playerHp / MAX_PLAYER_HP);
+            hpBarEl.style.width = `${hpRatio * 100}%`;
+            
+            if (hpRatio > 0.5) {
+                hpBarEl.style.backgroundColor = "#00ff00";
+            } else if (hpRatio > 0.25) {
+                hpBarEl.style.backgroundColor = "#ffaa00";
+            } else {
+                hpBarEl.style.backgroundColor = "#ff0000";
+            }
+
             if (isEngineOn) {
                 engineStatusEl.innerText = "ON";
                 engineStatusEl.style.color = "#00ff00";
@@ -216,7 +275,22 @@ html_code = """
             scoreStatusEl.innerText = killCount;
         }
 
-        // 포탄 발사 함수 (플레이어/AI 공용)
+        function restartGame() {
+            playerHp = MAX_PLAYER_HP;
+            isGameOver = false;
+            killCount = 0;
+            playerTank.position.set(0, 0, 0);
+            playerTank.rotation.set(0, 0, 0);
+            gameOverEl.style.display = "none";
+            
+            // 기존 AI 탱크 제거 후 다시 생성
+            aiTanks.forEach(ai => scene.remove(ai.mesh));
+            aiTanks.length = 0;
+            for (let i = 0; i < 2; i++) {
+                aiTanks.push(createAITank());
+            }
+        }
+
         function fireBullet(tankGroup, isPlayer, currentTime) {
             const bullet = new THREE.Mesh(bulletGeo, isPlayer ? playerBulletMat : aiBulletMat);
             
@@ -242,6 +316,13 @@ html_code = """
             keys[key] = true;
             const now = performance.now() / 1000;
 
+            if (isGameOver) {
+                if (key === 'r') {
+                    restartGame();
+                }
+                return;
+            }
+
             if (key === 'j') {
                 isEngineOn = true;
             } else if (key === 'h') {
@@ -260,72 +341,87 @@ html_code = """
             keys[e.key.toLowerCase()] = false;
         });
 
-        // 애니메이션 루프
         function animate() {
             requestAnimationFrame(animate);
 
             const now = performance.now() / 1000;
             updateHUD(now);
 
-            // 플레이어 조종
-            if (isEngineOn) {
-                if (keys['w']) playerTank.translateZ(speed);
-                if (keys['s']) playerTank.translateZ(-speed);
-                if (keys['a']) playerTank.rotation.y += turnSpeed;
-                if (keys['d']) playerTank.rotation.y -= turnSpeed;
+            if (!isGameOver) {
+                if (isEngineOn) {
+                    if (keys['w']) playerTank.translateZ(speed);
+                    if (keys['s']) playerTank.translateZ(-speed);
+                    if (keys['a']) playerTank.rotation.y += turnSpeed;
+                    if (keys['d']) playerTank.rotation.y -= turnSpeed;
+                }
+
+                // AI 제어
+                aiTanks.forEach(ai => {
+                    const targetPosition = new THREE.Vector3(playerTank.position.x, ai.mesh.position.y, playerTank.position.z);
+                    ai.mesh.lookAt(targetPosition);
+
+                    const dist = ai.mesh.position.distanceTo(playerTank.position);
+                    if (dist > 15) {
+                        ai.mesh.translateZ(speed * 0.5);
+                    }
+
+                    if (now - ai.lastShootTime >= ai.shootCooldown) {
+                        ai.lastShootTime = now;
+                        fireBullet(ai.mesh, false, now);
+                    }
+                });
             }
 
-            // AI 탱크 추적 및 공격 로직
-            aiTanks.forEach(ai => {
-                // 플레이어를 바라보도록 회전
-                const targetPosition = new THREE.Vector3(playerTank.position.x, ai.mesh.position.y, playerTank.position.z);
-                ai.mesh.lookAt(targetPosition);
-
-                // 일정 거리 유지하며 접근 (15 유닛 거리까지)
-                const dist = ai.mesh.position.distanceTo(playerTank.position);
-                if (dist > 15) {
-                    ai.mesh.translateZ(speed * 0.5); // 플레이어보다 절반 속도로 이동
-                }
-
-                // AI 포탄 발사
-                if (now - ai.lastShootTime >= ai.shootCooldown) {
-                    ai.lastShootTime = now;
-                    fireBullet(ai.mesh, false, now);
-                }
-            });
-
-            // 포탄 이동 및 충돌 판정
+            // 포탄 충돌 계산
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 b.mesh.position.addScaledVector(b.direction, bulletSpeed);
                 b.life -= 1;
 
-                // 플레이어 포탄이 AI 탱크에 적중했는지 체크
-                if (b.isPlayer) {
-                    for (let j = aiTanks.length - 1; j >= 0; j--) {
-                        const ai = aiTanks[j];
-                        if (b.mesh.position.distanceTo(ai.mesh.position) < 2.5) {
-                            // AI 탱크 파괴
-                            scene.remove(ai.mesh);
-                            aiTanks.splice(j, 1);
+                if (!isGameOver) {
+                    // 플레이어의 포탄 -> AI 적 타격
+                    if (b.isPlayer) {
+                        for (let j = aiTanks.length - 1; j >= 0; j--) {
+                            const ai = aiTanks[j];
+                            if (b.mesh.position.distanceTo(ai.mesh.position) < 2.5) {
+                                ai.hp -= 25; // 25 데미지
 
-                            // 포탄 제거
+                                scene.remove(b.mesh);
+                                b.mesh.geometry.dispose();
+                                bullets.splice(i, 1);
+
+                                if (ai.hp <= 0) {
+                                    scene.remove(ai.mesh);
+                                    aiTanks.splice(j, 1);
+                                    killCount += 1;
+
+                                    setTimeout(() => {
+                                        aiTanks.push(createAITank());
+                                    }, 2000);
+                                }
+                                break;
+                            }
+                        }
+                    } 
+                    // AI의 포탄 -> 플레이어 타격
+                    else {
+                        if (b.mesh.position.distanceTo(playerTank.position) < 2.5) {
+                            playerHp -= 25; // 25 데미지
+
                             scene.remove(b.mesh);
                             b.mesh.geometry.dispose();
                             bullets.splice(i, 1);
 
-                            killCount += 1;
-
-                            // 새 AI 탱크 리스폰
-                            setTimeout(() => {
-                                aiTanks.push(createAITank());
-                            }, 2000);
-                            break;
+                            if (playerHp <= 0) {
+                                playerHp = 0;
+                                isGameOver = true;
+                                gameOverEl.style.display = "block";
+                            }
+                            continue;
                         }
                     }
                 }
 
-                // 수명 다한 포탄 제거
                 if (b.life <= 0) {
                     scene.remove(b.mesh);
                     b.mesh.geometry.dispose();
@@ -333,7 +429,7 @@ html_code = """
                 }
             }
 
-            // 카메라 위치 설정
+            // 카메라 시점 설정
             if (isFirstPerson) {
                 const fpOffset = new THREE.Vector3(0, 2.0, 0.5);
                 const fpPosition = fpOffset.applyMatrix4(playerTank.matrixWorld);
