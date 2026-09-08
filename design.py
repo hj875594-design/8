@@ -3,8 +3,8 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Streamlit 3D 탱크 시뮬레이션", layout="wide")
 
-st.title("🚜 3D 탱크 대전 시뮬레이터 (기종별 전용 디자인 적용)")
-st.caption("각 기종의 명칭에 맞춰 독자적인 외형(미사일 포드, 궤도 장갑, 쌍열 주포)이 적용되었습니다.")
+st.title("🚜 3D 탱크 대전 시뮬레이터 (홈 화면 지원)")
+st.caption("메인 홈 화면에서 기종을 선택한 후 출격 버튼을 누르거나 ESC 키를 이용해 메인 메뉴로 돌아갈 수 있습니다.")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -12,14 +12,14 @@ with col1:
     **[시스템 조작]**
     * **ESC**: 일시정지 / 메인 메뉴 전환 ⏸️
     * **J / H**: 엔진 시작 / 정지
-    * **1 / 2 / 3**: 기종 변경 (스카우트 랭거 / MBT 치프틴 / 베히모스)
+    * **1 / 2 / 3**: 기종 선택 (6륜 경전차 / 중형 / 중전차)
     """)
 with col2:
     st.markdown("""
     **[전투 조종]**
     * **W / A / S / D**: 이동 및 차체 회전
     * **마우스 이동**: 포탑 조준 | **좌클릭 / F**: 포탄 발사 🔥
-    * **R**: 1/3인칭 시점 전환
+    * **R**: 1/3인칭 시점 전환 (게임 오버 시 재출격)
     """)
 
 html_code = """
@@ -27,87 +27,159 @@ html_code = """
 <html>
 <head>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #0b0d10; font-family: 'Segoe UI', sans-serif; cursor: default; }
+        body { margin: 0; overflow: hidden; background-color: #0b0d10; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; cursor: default; }
         #canvas-container { width: 100vw; height: 100vh; position: relative; }
         
+        /* 홈 화면 스스타일 */
         #home-screen {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(10, 14, 20, 0.94); display: flex; flex-direction: column;
-            justify-content: center; align-items: center; z-index: 100; backdrop-filter: blur(8px);
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 14, 20, 0.92);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(8px);
         }
-        .title { font-size: 48px; font-weight: 900; color: #00ff66; text-shadow: 0 0 20px rgba(0, 255, 102, 0.6); letter-spacing: 2px; margin-bottom: 8px; }
-        .subtitle { font-size: 16px; color: #aaa; margin-bottom: 35px; }
-        .select-title { font-size: 18px; color: #fff; margin-bottom: 15px; font-weight: bold; }
-        
-        .tank-option-group { display: flex; gap: 20px; margin-bottom: 35px; }
+        .title {
+            font-size: 52px;
+            font-weight: 900;
+            color: #00ff66;
+            text-shadow: 0 0 20px rgba(0, 255, 102, 0.6);
+            letter-spacing: 3px;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 18px;
+            color: #aaa;
+            margin-bottom: 40px;
+        }
+        .select-title {
+            font-size: 20px;
+            color: #fff;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .tank-option-group {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 40px;
+        }
         .tank-card {
-            background: rgba(255,255,255,0.05); border: 2px solid #333; border-radius: 12px;
-            padding: 20px; width: 200px; text-align: center; cursor: pointer; transition: all 0.2s ease;
+            background: rgba(255,255,255,0.05);
+            border: 2px solid #333;
+            border-radius: 12px;
+            padding: 20px 25px;
+            width: 180px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
         }
-        .tank-card:hover { border-color: #00ff66; transform: translateY(-5px); background: rgba(0, 255, 102, 0.1); }
-        .tank-card.selected { border-color: #00ff66; background: rgba(0, 255, 102, 0.2); box-shadow: 0 0 15px rgba(0, 255, 102, 0.4); }
-        .tank-card h3 { margin: 0 0 8px 0; color: #fff; font-size: 17px; }
-        .tank-card p { margin: 4px 0; color: #bbb; font-size: 12px; }
+        .tank-card:hover {
+            border-color: #00ff66;
+            transform: translateY(-5px);
+            background: rgba(0, 255, 102, 0.1);
+        }
+        .tank-card.selected {
+            border-color: #00ff66;
+            background: rgba(0, 255, 102, 0.2);
+            box-shadow: 0 0 15px rgba(0, 255, 102, 0.4);
+        }
+        .tank-card h3 { margin: 0 0 10px 0; color: #fff; font-size: 18px; }
+        .tank-card p { margin: 4px 0; color: #bbb; font-size: 13px; }
 
         .btn-start {
-            background: #00aa44; color: #fff; font-size: 22px; font-weight: bold;
-            padding: 14px 45px; border: 2px solid #00ff66; border-radius: 30px;
-            cursor: pointer; box-shadow: 0 0 20px rgba(0,255,100,0.4); transition: 0.2s;
+            background: #00aa44;
+            color: #fff;
+            font-size: 24px;
+            font-weight: bold;
+            padding: 16px 50px;
+            border: 2px solid #00ff66;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(0,255,100,0.4);
+            transition: 0.2s;
         }
-        .btn-start:hover { background: #00ff66; color: #000; box-shadow: 0 0 30px rgba(0,255,102,0.8); transform: scale(1.05); }
+        .btn-start:hover {
+            background: #00ff66;
+            color: #000;
+            box-shadow: 0 0 30px rgba(0,255,102,0.8);
+            transform: scale(1.05);
+        }
 
+        /* 게임 일시정지 메뉴 */
         #pause-screen {
-            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); flex-direction: column; justify-content: center; align-items: center; z-index: 90;
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 90;
         }
         .pause-title { font-size: 40px; color: #fff; margin-bottom: 30px; }
         .pause-btn {
-            background: #222; color: #fff; border: 1px solid #555; padding: 12px 30px;
-            margin: 8px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s;
+            background: #222; color: #fff; border: 1px solid #555;
+            padding: 12px 30px; margin: 8px; font-size: 18px; font-weight: bold;
+            border-radius: 8px; cursor: pointer; transition: 0.2s;
         }
         .pause-btn:hover { background: #00ff66; color: #000; border-color: #00ff66; }
 
+        /* HUD */
         #hud {
-            position: absolute; top: 20px; left: 20px; color: #00ff00; font-size: 14px; font-weight: bold;
-            background: rgba(10, 15, 10, 0.88); padding: 18px 22px; border-radius: 8px;
-            border: 1px solid #00ff00; line-height: 1.6; min-width: 260px; pointer-events: none;
-            box-shadow: 0 0 15px rgba(0,255,0,0.2); display: none;
+            position: absolute;
+            top: 20px; left: 20px;
+            color: #00ff00; font-size: 15px; font-weight: bold;
+            background: rgba(10, 15, 10, 0.88);
+            padding: 18px 22px; border-radius: 8px;
+            border: 1px solid #00ff00; line-height: 1.6; min-width: 250px;
+            pointer-events: none; user-select: none;
+            box-shadow: 0 0 15px rgba(0,255,0,0.2);
+            display: none;
         }
-        .hp-bar-container { width: 100%; background-color: #333; height: 14px; border-radius: 4px; overflow: hidden; margin-top: 4px; border: 1px solid #666; }
+        .hp-bar-container { width: 100%; background-color: #333; height: 16px; border-radius: 4px; overflow: hidden; margin-top: 4px; border: 1px solid #666; }
         .hp-bar-fill { height: 100%; background-color: #00ff00; width: 100%; transition: width 0.2s; }
+        #heal-msg { display: none; color: #00ff88; font-size: 15px; font-weight: bold; margin-top: 5px; }
 
         #game-over {
-            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #ff3333; font-size: 48px; font-weight: bold; background: rgba(0, 0, 0, 0.92);
-            padding: 30px 50px; border: 3px solid #ff3333; border-radius: 12px; text-align: center; z-index: 80;
+            display: none; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); color: #ff3333; font-size: 48px; font-weight: bold;
+            background: rgba(0, 0, 0, 0.92); padding: 30px 50px; border: 3px solid #ff3333;
+            border-radius: 12px; text-align: center; pointer-events: none; user-select: none;
+            box-shadow: 0 0 25px rgba(255, 0, 0, 0.5); z-index: 80;
         }
+        .ready { color: #00ff00; }
+        .cooldown { color: #ff9900; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
     <div id="canvas-container">
+        <!-- 메인 홈 화면 -->
         <div id="home-screen">
-            <div class="title">ARMORED WARFARE 3D</div>
-            <div class="subtitle">개성 넘치는 기종별 독자 디자인 전차를 확인하고 선택하세요</div>
+            <div class="title">BATTLE TANK 3D</div>
+            <div class="subtitle">시뮬레이션 전장에 출격할 탱크를 선택하세요</div>
 
-            <div class="select-title">기종 명칭 및 디자인 선택</div>
+            <div class="select-title">출격 장비 선택</div>
             <div class="tank-option-group">
                 <div class="tank-card selected" id="card-LIGHT" onclick="homeSelectTank('LIGHT')">
-                    <h3>⚡ 스카우트 T-7 "랭거"</h3>
-                    <p><b>6륜 장갑 / 미사일 포드</b></p>
-                    <p>기동성: 최상 (고속 정찰)</p>
+                    <h3>⚡ 6륜 경전차</h3>
+                    <p>기동력: 최상</p>
+                    <p>특징: 6개 바퀴</p>
                     <p>DMG: 20</p>
                 </div>
                 <div class="tank-card" id="card-MEDIUM" onclick="homeSelectTank('MEDIUM')">
-                    <h3>🛡️ MBT-12 "치프틴"</h3>
-                    <p><b>복합 측면장갑 / 연막탄</b></p>
-                    <p>기동성: 보통 (주력 전차)</p>
+                    <h3>🛡️ 중형전차</h3>
+                    <p>기동력: 보통</p>
+                    <p>특징: 밸런스</p>
                     <p>DMG: 30</p>
                 </div>
                 <div class="tank-card" id="card-HEAVY" onclick="homeSelectTank('HEAVY')">
-                    <h3>🐘 HT-9 "베히모스"</h3>
-                    <p><b>쌍열 주포 / 반응 장갑</b></p>
-                    <p>기동성: 느림 (원샷 원킬)</p>
+                    <h3>🐘 중전차</h3>
+                    <p>기동력: 느림</p>
+                    <p>특징: 원샷 원킬</p>
                     <p>DMG: 100</p>
                 </div>
             </div>
@@ -115,20 +187,26 @@ html_code = """
             <button class="btn-start" onclick="startGame()">전장 출격 (START)</button>
         </div>
 
+        <!-- 일시정지 메뉴 -->
         <div id="pause-screen">
             <div class="pause-title">PAUSED</div>
             <button class="pause-btn" onclick="resumeGame()">전투 재개 (Resume)</button>
             <button class="pause-btn" onclick="returnToHome()">메인 메뉴로 (Home)</button>
         </div>
 
+        <!-- 게임 내 HUD -->
         <div id="hud">
-            <div>기종: <span id="tank-type-name" style="color: #ffff00;">스카우트 T-7 '랭거'</span></div>
+            <div>기종: <span id="tank-type-name" style="color: #ffff00;">6륜 경전차</span></div>
             <div>주포 데미지: <span id="tank-damage" style="color: #ff3300;">20</span></div>
             <div>내구도: <span id="hp-text">70 / 70</span>
-                <div class="hp-bar-container"><div id="hp-bar" class="hp-bar-fill"></div></div>
+                <div class="hp-bar-container">
+                    <div id="hp-bar" class="hp-bar-fill"></div>
+                </div>
+                <div id="heal-msg">💚 HP +30 수리완료!</div>
             </div>
             <div style="margin-top: 8px;">동력계: <span id="engine-status" style="color: #ff3333;">정지 [J: 시동]</span></div>
-            <div>주포 상태: <span id="cooldown-status" style="color: #00ff00;">발사 준비 완료</span></div>
+            <div>주포 상태: <span id="cooldown-status" class="ready">발사 준비 완료</span></div>
+            <div>포구 각도: <span id="elevation-angle" style="color: #00ffff;">0.0°</span></div>
             <div>시점: <span id="camera-status" style="color: #00ffff;">3인칭 [R]</span></div>
             <div>격파 수: <span id="score-status" style="color: #ffff00;">0</span></div>
         </div>
@@ -141,9 +219,9 @@ html_code = """
 
     <script>
         const TANK_TYPES = {
-            LIGHT: { name: "스카우트 T-7 '랭거'", maxHp: 70, speed: 0.45, turnSpeed: 0.07, damage: 20, cooldown: 3.5, color: 0x3d5236, scale: 0.8 },
-            MEDIUM: { name: "MBT-12 '치프틴'", maxHp: 100, speed: 0.30, turnSpeed: 0.05, damage: 30, cooldown: 5.5, color: 0x2e4f25, scale: 1.0 },
-            HEAVY: { name: "HT-9 '베히모스'", maxHp: 160, speed: 0.18, turnSpeed: 0.035, damage: 100, cooldown: 7.5, color: 0x1f2e22, scale: 1.25 }
+            LIGHT: { name: "6륜 경전차", maxHp: 70, speed: 0.45, turnSpeed: 0.07, damage: 20, cooldown: 3.5, color: 0x4a6b43, scale: 0.8, isWheeled: true },
+            MEDIUM: { name: "중형전차", maxHp: 100, speed: 0.30, turnSpeed: 0.05, damage: 30, cooldown: 5.5, color: 0x2e4f25, scale: 1.0, isWheeled: false },
+            HEAVY: { name: "중전차", maxHp: 160, speed: 0.18, turnSpeed: 0.035, damage: 100, cooldown: 7.5, color: 0x1b3316, scale: 1.25, isWheeled: false }
         };
 
         let currentTypeKey = 'LIGHT';
@@ -163,11 +241,17 @@ html_code = """
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         container.appendChild(renderer.domElement);
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-        const dirLight = new THREE.DirectionalLight(0xfff5ea, 1.2);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfff5ea, 1.0);
         dirLight.position.set(30, 50, 20);
         dirLight.castShadow = true;
         scene.add(dirLight);
+
+        const gridHelper = new THREE.GridHelper(200, 50, 0x00ff00, 0x333333);
+        gridHelper.position.y = -0.01;
+        scene.add(gridHelper);
 
         const plane = new THREE.Mesh(
             new THREE.PlaneGeometry(250, 250),
@@ -180,142 +264,58 @@ html_code = """
         let playerHp = currentType.maxHp;
         let isGameOver = false;
 
-        // --- 명칭에 맞춘 고유 디자인 생성 로직 ---
-        function createCustomTankMesh(typeKey, isAI = false) {
+        function createTankMesh(typeConfig, isAI = false) {
             const group = new THREE.Group();
-            const config = TANK_TYPES[typeKey];
-
-            const bodyMat = new THREE.MeshStandardMaterial({ color: isAI ? 0x772222 : config.color, roughness: 0.5, metalness: 0.3 });
-            const darkMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8, roughness: 0.4 });
-            const metalMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.9, roughness: 0.2 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.4 });
+            const bodyMat = new THREE.MeshStandardMaterial({ color: typeConfig.color, roughness: 0.5, metalness: 0.3 });
+            const detailMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
             const lightMat = new THREE.MeshBasicMaterial({ color: isAI ? 0xff0000 : 0x00ffff });
 
-            // 1. 차체 (Base Body)
-            const body = new THREE.Mesh(new THREE.BoxGeometry(3.0, 1.1, 4.4), bodyMat);
+            const body = new THREE.Mesh(new THREE.BoxGeometry(3, 1.1, 4.2), bodyMat);
             body.position.y = 0.9;
             body.castShadow = true;
             group.add(body);
 
-            const turretGroup = new THREE.Group();
-            turretGroup.position.set(0, 1.65, 0.1);
-            const cannonPitchGroup = new THREE.Group();
-            cannonPitchGroup.position.set(0, 0, 0.8);
-
-            // ==================== ⚡ 1. 스카우트 T-7 "랭거" (6륜 장갑/미사일 포드) ====================
-            if (typeKey === 'LIGHT') {
-                // 6바퀴
+            if (typeConfig.isWheeled) {
+                const wheelPositionsZ = [-1.5, 0, 1.5];
                 [-1.65, 1.65].forEach(x => {
-                    [-1.5, 0, 1.5].forEach(z => {
-                        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.45, 16), darkMat);
+                    wheelPositionsZ.forEach(z => {
+                        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.5, 16), wheelMat);
                         wheel.rotation.z = Math.PI / 2;
                         wheel.position.set(x, 0.52, z);
+                        wheel.castShadow = true;
                         group.add(wheel);
                     });
                 });
-
-                // 미사일 포드 (포탑 양옆)
-                [-1.4, 1.4].forEach(x => {
-                    const pod = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 1.2), metalMat);
-                    pod.position.set(x, 0.2, -0.1);
-                    turretGroup.add(pod);
-                });
-
-                // 상부 서치라이트/탐조등
-                const lightSpot = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.3, 12), lightMat);
-                lightSpot.rotation.x = Math.PI / 2;
-                lightSpot.position.set(-0.6, 0.5, 0.5);
-                turretGroup.add(lightSpot);
-
-                // 단열 고속 주포
-                const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 2.8, 16), metalMat);
-                cannon.rotation.x = Math.PI / 2;
-                cannon.position.set(0, 0, 1.2);
-                cannonPitchGroup.add(cannon);
-
-                const turret = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.7, 2.2), bodyMat);
-                turretGroup.add(turret);
-            }
-
-            // ==================== 🛡️ 2. MBT-12 "치프틴" (복합 장갑/연막탄 발사기) ====================
-            else if (typeKey === 'MEDIUM') {
-                // 무한궤도 + 사이드 스커트(복합장갑 판넬)
+            } else {
                 [-1.6, 1.6].forEach(x => {
-                    const track = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 4.6), darkMat);
-                    track.position.set(x, 0.5, 0);
-                    group.add(track);
-
-                    // 측면 보호 장갑판 (Side Skirts)
-                    const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.7, 4.4), bodyMat);
-                    skirt.position.set(x > 0 ? x + 0.3 : x - 0.3, 0.7, 0);
-                    group.add(skirt);
-                });
-
-                // 포탑 측면 연막탄 발사기 기믹
-                [-1.25, 1.25].forEach(x => {
-                    const smokeLauncher = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.6), metalMat);
-                    smokeLauncher.position.set(x, 0.2, -0.4);
-                    smokeLauncher.rotation.y = x > 0 ? -0.3 : 0.3;
-                    turretGroup.add(smokeLauncher);
-                });
-
-                // 주포 및 제퇴기
-                const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.17, 3.2, 16), metalMat);
-                cannon.rotation.x = Math.PI / 2;
-                cannon.position.set(0, 0, 1.4);
-                cannonPitchGroup.add(cannon);
-
-                const turret = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.75, 2.5), bodyMat);
-                turretGroup.add(turret);
-            }
-
-            // ==================== 🐘 3. HT-9 "베히모스" (쌍열 주포/이중 반응장갑) ====================
-            else if (typeKey === 'HEAVY') {
-                // 더 두꺼운 무한궤도
-                [-1.75, 1.75].forEach(x => {
-                    const track = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.95, 4.8), darkMat);
+                    const track = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 4.6), darkMat);
                     track.position.set(x, 0.5, 0);
                     group.add(track);
                 });
-
-                // 전면 및 측면 반응장갑(ERA) 블록 부착
-                for (let z = -1.5; z <= 1.5; z += 0.8) {
-                    [-1.6, 1.6].forEach(x => {
-                        const eraBlock = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 0.6), metalMat);
-                        eraBlock.position.set(x, 0.95, z);
-                        group.add(eraBlock);
-                    });
-                }
-
-                // 🔥 **핵심: 쌍열 주포 (Double Cannon)**
-                [-0.35, 0.35].forEach(x => {
-                    const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 3.4, 16), metalMat);
-                    cannon.rotation.x = Math.PI / 2;
-                    cannon.position.set(x, 0, 1.5);
-                    cannonPitchGroup.add(cannon);
-
-                    const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.5), metalMat);
-                    muzzle.position.set(x, 0, 3.1);
-                    cannonPitchGroup.add(muzzle);
-                });
-
-                const turret = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.85, 2.8), bodyMat);
-                turretGroup.add(turret);
             }
+
+            const turretGroup = new THREE.Group();
+            turretGroup.position.set(0, 1.65, 0.1);
+            const turret = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.75, 2.4), bodyMat);
+            turret.position.set(0, 0, -0.2);
+            turretGroup.add(turret);
+
+            const cannonPitchGroup = new THREE.Group();
+            cannonPitchGroup.position.set(0, 0, 0.8);
+            const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 2.8, 16), detailMat);
+            cannon.rotation.x = Math.PI / 2;
+            cannon.position.set(0, 0, 1.2);
+            cannonPitchGroup.add(cannon);
 
             turretGroup.add(cannonPitchGroup);
             group.add(turretGroup);
 
-            // 헤드라이트
-            [-0.9, 0.9].forEach(x => {
-                const hl = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.1), lightMat);
-                hl.position.set(x, 1.0, 2.2);
-                group.add(hl);
-            });
-
             return { mesh: group, turretGroup, cannonPitchGroup };
         }
 
-        let playerTankData = createCustomTankMesh(currentTypeKey, false);
+        let playerTankData = createTankMesh(currentType, false);
         let playerTank = playerTankData.mesh;
         let turretGroup = playerTankData.turretGroup;
         let cannonPitchGroup = playerTankData.cannonPitchGroup;
@@ -323,7 +323,7 @@ html_code = """
 
         function rebuildPlayerTank() {
             scene.remove(playerTank);
-            playerTankData = createCustomTankMesh(currentTypeKey, false);
+            playerTankData = createTankMesh(currentType, false);
             playerTank = playerTankData.mesh;
             turretGroup = playerTankData.turretGroup;
             cannonPitchGroup = playerTankData.cannonPitchGroup;
@@ -354,7 +354,8 @@ html_code = """
         }
 
         window.returnToHome = function() {
-            isPaused = false; isGameStarted = false;
+            isPaused = false;
+            isGameStarted = false;
             document.getElementById('pause-screen').style.display = 'none';
             document.getElementById('hud').style.display = 'none';
             document.getElementById('home-screen').style.display = 'flex';
@@ -363,7 +364,7 @@ html_code = """
 
         const aiTanks = [];
         function createAITank() {
-            const aiData = createCustomTankMesh('MEDIUM', true);
+            const aiData = createTankMesh(TANK_TYPES.MEDIUM, true);
             const aiMesh = aiData.mesh;
             const angle = Math.random() * Math.PI * 2;
             const distance = 30 + Math.random() * 30;
@@ -374,7 +375,7 @@ html_code = """
 
         const bullets = [];
         const bulletGeo = new THREE.SphereGeometry(0.22, 8, 8);
-        const heavyBulletGeo = new THREE.SphereGeometry(0.40, 12, 12);
+        const heavyBulletGeo = new THREE.SphereGeometry(0.38, 12, 12);
         const playerBulletMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
         const aiBulletMat = new THREE.MeshBasicMaterial({ color: 0xff3300 });
 
@@ -390,8 +391,10 @@ html_code = """
 
         function restartGame() {
             playerHp = currentType.maxHp;
-            isGameOver = false; killCount = 0;
-            playerTank.position.set(0, 0, 0); playerTank.rotation.set(0, 0, 0);
+            isGameOver = false;
+            killCount = 0;
+            playerTank.position.set(0, 0, 0);
+            playerTank.rotation.set(0, 0, 0);
             document.getElementById('game-over').style.display = "none";
             aiTanks.forEach(ai => scene.remove(ai.mesh));
             aiTanks.length = 0;
@@ -410,7 +413,7 @@ html_code = """
         function fireBullet(pitchGroupRef, isPlayer, damage) {
             const isHeavy = isPlayer && currentTypeKey === 'HEAVY';
             const bullet = new THREE.Mesh(isHeavy ? heavyBulletGeo : bulletGeo, isPlayer ? playerBulletMat : aiBulletMat);
-            const muzzleOffset = new THREE.Vector3(0, 0, 3.0 * (isPlayer ? currentType.scale : 1.0));
+            const muzzleOffset = new THREE.Vector3(0, 0, 2.8 * (isPlayer ? currentType.scale : 1.0));
             muzzleOffset.applyMatrix4(pitchGroupRef.matrixWorld);
             bullet.position.copy(muzzleOffset);
 
@@ -453,19 +456,19 @@ html_code = """
             requestAnimationFrame(animate);
 
             if (!isGameStarted || isPaused) {
+                // 메인 화면용 카메라 회전 연출
                 if (!isGameStarted) {
-                    const time = Date.now() * 0.0006;
-                    camera.position.x = Math.sin(time) * 11;
-                    camera.position.z = Math.cos(time) * 11;
-                    camera.position.y = 5.5;
+                    const time = Date.now() * 0.0005;
+                    camera.position.x = Math.sin(time) * 12;
+                    camera.position.z = Math.cos(time) * 12;
+                    camera.position.y = 6;
                     camera.lookAt(0, 1, 0);
                 }
                 renderer.render(scene, camera);
                 return;
             }
 
-            document.getElementById('tank-type-name').innerText = currentType.name;
-            document.getElementById('tank-damage').innerText = currentType.damage;
+            const now = performance.now() / 1000;
             document.getElementById('hp-text').innerText = `${playerHp} / ${currentType.maxHp}`;
             document.getElementById('hp-bar').style.width = `${Math.max(0, playerHp / currentType.maxHp) * 100}%`;
             document.getElementById('engine-status').innerText = isEngineOn ? "가동 중 [ON]" : "정지 [OFF - J입력]";
@@ -491,7 +494,6 @@ html_code = """
                 aiTanks.forEach(ai => {
                     ai.mesh.lookAt(playerTank.position.x, ai.mesh.position.y, playerTank.position.z);
                     if (ai.mesh.position.distanceTo(playerTank.position) > 16) ai.mesh.translateZ(0.16);
-                    const now = performance.now() / 1000;
                     if (now - ai.lastShootTime >= ai.shootCooldown) {
                         ai.lastShootTime = now;
                         fireBullet(ai.cannonPitchGroup, false, 18);
@@ -543,7 +545,7 @@ html_code = """
                 camera.lookAt(new THREE.Vector3(0, 0.4 * currentType.scale, 20).applyMatrix4(cannonPitchGroup.matrixWorld));
             } else {
                 const tpOffset = new THREE.Vector3(0, 6.5 * currentType.scale, -13 * currentType.scale).applyMatrix4(playerTank.matrixWorld);
-                camera.position.copy(tpPosition);
+                camera.position.copy(tpOffset);
                 camera.lookAt(playerTank.position.x, playerTank.position.y + 1, playerTank.position.z);
             }
 
