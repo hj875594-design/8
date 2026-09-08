@@ -3,8 +3,8 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Streamlit High-Detail 3D 탱크 시뮬레이션", layout="wide")
 
-st.title("🚜 3D 탱크 대전 시뮬레이터 (중전차 화력 강화 버전)")
-st.caption("중전차의 주포 데미지가 100으로 대폭 증가하여 한 발로 적을 제압할 수 있습니다!")
+st.title("🚜 3D 탱크 대전 시뮬레이터 (6륜 경전차 추가 버전)")
+st.caption("경전차(LIGHT) 선택 시 총 6개의 바퀴가 달린 민첩한 6륜 경전차로 출격합니다!")
 
 # 조작 키 안내
 col1, col2 = st.columns(2)
@@ -13,7 +13,7 @@ with col1:
     **[엔진 조작]**
     * **J**: 엔진 시작
     * **H**: 엔진 정지
-    * **1 / 2 / 3**: 탱크 변경 (경전차 / 중형 / **중전차 💥**)
+    * **1 / 2 / 3**: 탱크 변경 (**1번: 6륜 경전차 ⚡**)
     """)
 with col2:
     st.markdown("""
@@ -127,9 +127,9 @@ html_code = """
 <body>
     <div id="canvas-container">
         <div id="hud">
-            <div>기종: <span id="tank-type-name" style="color: #ffff00;">중형전차</span></div>
-            <div>주포 데미지: <span id="tank-damage" style="color: #ff3300;">30</span></div>
-            <div>내구도: <span id="hp-text">100 / 100</span>
+            <div>기종: <span id="tank-type-name" style="color: #ffff00;">경전차</span></div>
+            <div>주포 데미지: <span id="tank-damage" style="color: #ff3300;">20</span></div>
+            <div>내구도: <span id="hp-text">70 / 70</span>
                 <div class="hp-bar-container">
                     <div id="hp-bar" class="hp-bar-fill"></div>
                 </div>
@@ -143,8 +143,8 @@ html_code = """
         </div>
 
         <div id="tank-selector">
-            <button class="tank-btn" onclick="selectTankType('LIGHT')">[1] ⚡ 경전차 (고속/연사)</button>
-            <button class="tank-btn active" onclick="selectTankType('MEDIUM')">[2] 🛡️ 중형전차 (주력)</button>
+            <button class="tank-btn active" onclick="selectTankType('LIGHT')">[1] ⚡ 6륜 경전차 (고속/6바퀴)</button>
+            <button class="tank-btn" onclick="selectTankType('MEDIUM')">[2] 🛡️ 중형전차 (주력)</button>
             <button class="tank-btn" onclick="selectTankType('HEAVY')">[3] 🐘 중전차 (DMG: 100 원샷!)</button>
         </div>
 
@@ -155,14 +155,13 @@ html_code = """
     </div>
 
     <script>
-        // 중전차(HEAVY) 데미지 100으로 강화
         const TANK_TYPES = {
-            LIGHT: { name: "경전차", maxHp: 70, speed: 0.45, turnSpeed: 0.07, damage: 20, cooldown: 3.5, color: 0x4a6b43, scale: 0.8 },
-            MEDIUM: { name: "중형전차", maxHp: 100, speed: 0.30, turnSpeed: 0.05, damage: 30, cooldown: 5.5, color: 0x2e4f25, scale: 1.0 },
-            HEAVY: { name: "중전차", maxHp: 160, speed: 0.18, turnSpeed: 0.035, damage: 100, cooldown: 7.5, color: 0x1b3316, scale: 1.25 }
+            LIGHT: { name: "6륜 경전차", maxHp: 70, speed: 0.45, turnSpeed: 0.07, damage: 20, cooldown: 3.5, color: 0x4a6b43, scale: 0.8, isWheeled: true },
+            MEDIUM: { name: "중형전차", maxHp: 100, speed: 0.30, turnSpeed: 0.05, damage: 30, cooldown: 5.5, color: 0x2e4f25, scale: 1.0, isWheeled: false },
+            HEAVY: { name: "중전차", maxHp: 160, speed: 0.18, turnSpeed: 0.035, damage: 100, cooldown: 7.5, color: 0x1b3316, scale: 1.25, isWheeled: false }
         };
 
-        let currentTypeKey = 'MEDIUM';
+        let currentTypeKey = 'LIGHT';
         let currentType = TANK_TYPES[currentTypeKey];
 
         const container = document.getElementById('canvas-container');
@@ -201,12 +200,14 @@ html_code = """
         let playerHp = currentType.maxHp;
         let isGameOver = false;
 
-        function createDetailedTankMesh(mainColorHex, isAI = false) {
+        // --- 경전차(6륜 바퀴) 및 일반 무한궤도 탱크 메쉬 생성 함수 ---
+        function createTankMesh(typeConfig, isAI = false) {
             const group = new THREE.Group();
 
             const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
-            const bodyMat = new THREE.MeshStandardMaterial({ color: mainColorHex, roughness: 0.5, metalness: 0.3 });
-            const detailMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8 });
+            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.4 });
+            const bodyMat = new THREE.MeshStandardMaterial({ color: typeConfig.color, roughness: 0.5, metalness: 0.3 });
+            const detailMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
             const lightMat = new THREE.MeshBasicMaterial({ color: isAI ? 0xff0000 : 0x00ffff });
 
             // 차체
@@ -216,22 +217,44 @@ html_code = """
             body.castShadow = true;
             group.add(body);
 
-            // 궤도
-            [-1.6, 1.6].forEach(x => {
-                const trackGeo = new THREE.BoxGeometry(0.6, 0.9, 4.6);
-                const track = new THREE.Mesh(trackGeo, darkMat);
-                track.position.set(x, 0.5, 0);
-                track.castShadow = true;
-                group.add(track);
+            if (typeConfig.isWheeled) {
+                // **6륜 바퀴 구조 (좌 3개, 우 3개 = 총 6개)**
+                const wheelPositionsZ = [-1.5, 0, 1.5]; // 앞, 중간, 뒤 바퀴 위치
+                [-1.65, 1.65].forEach(x => {
+                    wheelPositionsZ.forEach(z => {
+                        const wheelGeo = new THREE.CylinderGeometry(0.52, 0.52, 0.5, 16);
+                        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+                        wheel.rotation.z = Math.PI / 2;
+                        wheel.position.set(x, 0.52, z);
+                        wheel.castShadow = true;
+                        group.add(wheel);
 
-                for (let z = -1.8; z <= 1.8; z += 0.9) {
-                    const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.65, 12);
-                    const wheel = new THREE.Mesh(wheelGeo, detailMat);
-                    wheel.rotation.z = Math.PI / 2;
-                    wheel.position.set(x, 0.4, z);
-                    group.add(wheel);
-                }
-            });
+                        // 휠 캡 디테일
+                        const capGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.52, 12);
+                        const cap = new THREE.Mesh(capGeo, detailMat);
+                        cap.rotation.z = Math.PI / 2;
+                        cap.position.set(x, 0.52, z);
+                        group.add(cap);
+                    });
+                });
+            } else {
+                // 무한궤도 구조 (중형/중전차)
+                [-1.6, 1.6].forEach(x => {
+                    const trackGeo = new THREE.BoxGeometry(0.6, 0.9, 4.6);
+                    const track = new THREE.Mesh(trackGeo, darkMat);
+                    track.position.set(x, 0.5, 0);
+                    track.castShadow = true;
+                    group.add(track);
+
+                    for (let z = -1.8; z <= 1.8; z += 0.9) {
+                        const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.65, 12);
+                        const wheel = new THREE.Mesh(wheelGeo, detailMat);
+                        wheel.rotation.z = Math.PI / 2;
+                        wheel.position.set(x, 0.4, z);
+                        group.add(wheel);
+                    }
+                });
+            }
 
             // 포탑
             const turretGroup = new THREE.Group();
@@ -249,7 +272,7 @@ html_code = """
             hatch.position.set(0.5, 0.45, -0.2);
             turretGroup.add(hatch);
 
-            // 주포 상하 피벗 그룹
+            // 주포 Pitch 그룹
             const cannonPitchGroup = new THREE.Group();
             cannonPitchGroup.position.set(0, 0, 0.8);
 
@@ -282,15 +305,26 @@ html_code = """
             };
         }
 
-        const playerTankData = createDetailedTankMesh(currentType.color, false);
-        const playerTank = playerTankData.mesh;
-        const turretGroup = playerTankData.turretGroup;
-        const cannonPitchGroup = playerTankData.cannonPitchGroup;
+        let playerTankData = createTankMesh(currentType, false);
+        let playerTank = playerTankData.mesh;
+        let turretGroup = playerTankData.turretGroup;
+        let cannonPitchGroup = playerTankData.cannonPitchGroup;
         scene.add(playerTank);
+
+        function rebuildPlayerTank() {
+            scene.remove(playerTank);
+            playerTankData = createTankMesh(currentType, false);
+            playerTank = playerTankData.mesh;
+            turretGroup = playerTankData.turretGroup;
+            cannonPitchGroup = playerTankData.cannonPitchGroup;
+            scene.add(playerTank);
+            playerTank.scale.set(currentType.scale, currentType.scale, currentType.scale);
+        }
 
         function applyTankStats() {
             currentType = TANK_TYPES[currentTypeKey];
-            playerTank.scale.set(currentType.scale, currentType.scale, currentType.scale);
+            rebuildPlayerTank();
+
             document.getElementById('tank-type-name').innerText = currentType.name;
             document.getElementById('tank-damage').innerText = currentType.damage;
 
@@ -309,7 +343,7 @@ html_code = """
 
         const aiTanks = [];
         function createAITank() {
-            const aiData = createDetailedTankMesh(0x8b2222, true);
+            const aiData = createTankMesh(TANK_TYPES.MEDIUM, true);
             const aiMesh = aiData.mesh;
 
             const angle = Math.random() * Math.PI * 2;
@@ -364,7 +398,7 @@ html_code = """
         const bullets = [];
         const effects = [];
         const bulletGeo = new THREE.SphereGeometry(0.22, 8, 8);
-        const heavyBulletGeo = new THREE.SphereGeometry(0.38, 12, 12); // 중전차용 대형 포탄
+        const heavyBulletGeo = new THREE.SphereGeometry(0.38, 12, 12);
         const playerBulletMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
         const aiBulletMat = new THREE.MeshBasicMaterial({ color: 0xff3300 });
 
